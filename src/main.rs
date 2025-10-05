@@ -1,9 +1,18 @@
 use std::net::SocketAddr;
 
-use tokio::net::{TcpListener, TcpStream};
-use tracing::{Instrument, Level, error, info, span, trace, warn};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+};
+use tracing::{Instrument, Level, debug, error, info, span, trace, warn};
 
-use crate::packets::{Handshake, ReadPacket, WritePacket};
+use crate::{
+    packets::{
+        Handshake, LoginStart, ReadPacket, VelocityLoginPluginRequest, VelocityLoginPluginResponse,
+        WritePacket,
+    },
+    types::{MCData, MCString, VarInt},
+};
 
 mod packets;
 mod types;
@@ -31,6 +40,8 @@ async fn main() {
         }
     };
 
+    let mut connection_id = 0i32;
+
     // Wait for connections
     while let Ok((client_connection, client_adress)) = client_listener.accept().await {
         let connection_span = span!(Level::TRACE, "client_connection", client = %client_adress);
@@ -52,9 +63,15 @@ async fn main() {
         };
 
         tokio::task::spawn(
-            handle_connection(client_connection, client_adress, backend_connection)
-                .instrument(connection_span),
+            handle_connection(
+                client_connection,
+                client_adress,
+                backend_connection,
+                connection_id,
+            )
+            .instrument(connection_span),
         );
+        connection_id = connection_id.wrapping_add(1);
     }
 }
 
@@ -62,10 +79,11 @@ async fn handle_connection(
     mut client_connection: TcpStream,
     client_adress: SocketAddr,
     mut backend_connection: TcpStream,
+    connection_id: i32,
 ) {
     // TODO: Support old handshakes
     // First, read the handshake from the client
-    let handshake = match client_connection.read_packet::<Handshake>().await {
+    let mut handshake = match client_connection.read_packet::<Handshake>().await {
         Ok(handshake) => handshake,
         Err(e) => {
             error!("Failed to read handshake from client {client_adress}: {e}");
@@ -97,8 +115,106 @@ async fn handle_connection(
                 *handshake.protocol_version
             );
 
+            // Read the Login Start Packet
+            let Ok(mut login_start) = client_connection.read_packet::<LoginStart>().await else {
+                warn!("Failed to read login start packet from client");
+                return;
+            };
+
+            // Send Request to the proxy
+            let plugin_request = VelocityLoginPluginRequest::new(connection_id);
+            let Ok(_) = client_connection.write_packet(plugin_request).await else {
+                warn!("Failed to send login plugin request to proxy");
+                return;
+            };
+
+            trace!("Sending login plugin request to proxy");
+            let Ok(_) = client_connection.flush().await else {
+                warn!("Failed to flush login plugin request to proxy");
+                return;
+            };
+
+            trace!("Waiting for login plugin response from proxy");
+            let (buffer, response) = match buffer_until_response(&mut client_connection).await {
+                Ok((buffer, response)) => (buffer, response),
+                Err(e) => {
+                    warn!("Failed to read login plugin response from client {client_adress}: {e}");
+                    return;
+                }
+            };
+            trace!("Received login plugin response from client");
+
+            // TODO: Validate response
+            trace!("Validating login plugin response from proxy");
+            if *response.connection_id != connection_id {
+                warn!("Client {client_adress} sent invalid connection id in login plugin response");
+                return;
+            }
+
+            // Sending modified Handshake
+
+            let mut forwarding_data = format!(
+                "{}\0{}\0{:x}",
+                handshake.server_address.as_str(),
+                response.client_address.as_str(),
+                response.player_uuid.0
+            );
+
+            if !response.properties.is_empty() {
+                forwarding_data.push('\0');
+                forwarding_data.push('[');
+
+                for property in response.properties {
+                    forwarding_data.push('{');
+
+                    forwarding_data.push_str("\"name\":\"");
+                    forwarding_data.push_str(&property.name.to_string());
+                    forwarding_data.push_str("\",");
+
+                    forwarding_data.push_str("\"value\":\"");
+                    forwarding_data.push_str(&property.value.to_string().replace('=', "\\u003d"));
+                    forwarding_data.push('"');
+
+                    if let Some(signature) = property.signature {
+                        forwarding_data.push_str(",\"signature\":\"");
+                        forwarding_data.push_str(&signature.to_string().replace('=', "\\u003d"));
+                        forwarding_data.push('\"');
+                    }
+                    forwarding_data.push_str("},");
+                }
+                forwarding_data.pop(); // Remove the last ',' at the end of the list
+                forwarding_data.push(']');
+            }
+
+            debug!("{}", forwarding_data.replace('\0', "\\0"));
+            handshake.server_address = MCString::new(forwarding_data).unwrap();
+
             let Ok(_) = backend_connection.write_packet(handshake).await else {
                 warn!("Failed to forward status handshake to backend");
+                return;
+            };
+
+            login_start.username = response.username;
+            // Forward the captured login start packet
+            let Ok(_) = backend_connection.write_packet(login_start).await else {
+                warn!("Failed to forward login start packet to backend");
+                return;
+            };
+
+            // Forward the buffered packets
+            if !buffer.is_empty() {
+                trace!(
+                    "Forwarding {} bytes of buffered packets to backend",
+                    buffer.len()
+                );
+                if let Err(e) = backend_connection.write_all(&buffer).await {
+                    warn!("Failed to forward buffered packets to backend: {e}");
+                    return;
+                }
+            }
+
+            let Ok(_) = backend_connection.flush().await else {
+                error!("failed to send all packets to the server before initiating connection");
                 return;
             };
 
@@ -123,4 +239,40 @@ async fn handle_connection(
     }
 
     trace!("Connection from {client_adress} closed");
+}
+
+async fn buffer_until_response(
+    client_connection: &mut TcpStream,
+) -> tokio::io::Result<(Vec<u8>, VelocityLoginPluginResponse)> {
+    let mut serverbound_buffer = Vec::new();
+    loop {
+        // Read length
+        let packet_length = VarInt::read(client_connection).await?;
+        trace!("Reading packet of length {}", *packet_length);
+
+        // Peek if id matches the LoginPluginResponse
+        let mut peek_buffer = [0u8; 1];
+        client_connection.peek(&mut peek_buffer).await?;
+
+        // If it does, read the packet fully and return
+        if peek_buffer[0] == 0x02 {
+            trace!("Trying to read login plugin response packet");
+            match VelocityLoginPluginResponse::read(client_connection).await {
+                Ok(response) => {
+                    return Ok((serverbound_buffer, response));
+                }
+                Err(e) => {
+                    error!("Failed to read login plugin response from client: {e}");
+                    return Err(e);
+                }
+            };
+        }
+
+        trace!("buffering packet id: 0x{:02X}", peek_buffer[0]);
+        // If not, read the packet fully into the buffer and continue
+        let mut packet_buffer = vec![0u8; *packet_length as usize];
+        client_connection.read_exact(&mut packet_buffer).await?;
+        packet_length.write(&mut serverbound_buffer).await?;
+        serverbound_buffer.extend(packet_buffer);
+    }
 }

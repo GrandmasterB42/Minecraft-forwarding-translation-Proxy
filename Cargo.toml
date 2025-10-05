@@ -13,3 +13,4 @@ tokio = { version = "1", features = [
 ] }
 tracing = "0.1.41"
 tracing-subscriber = "0.3.20"
+packet_markers = { path = "packet_markers" }

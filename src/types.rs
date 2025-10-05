@@ -120,6 +120,20 @@ pub struct MCString {
     value: String,
 }
 
+impl MCString {
+    pub fn new(value: String) -> Result<Self, &'static str> {
+        let length = VarInt::try_from(value.len() as i32)?;
+        if length.value > 32767 {
+            return Err("String is too long");
+        }
+        Ok(MCString { length, value })
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.value
+    }
+}
+
 impl MCData for MCString {
     async fn read<R: AsyncReadExt + Unpin>(reader: &mut R) -> tokio::io::Result<Self> {
         let length = VarInt::read(reader).await?;
@@ -141,5 +155,30 @@ impl MCData for MCString {
 
     fn byte_size(&self) -> usize {
         self.length.byte_size() + self.value.len()
+    }
+}
+
+impl std::fmt::Display for MCString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.value.fmt(f)
+    }
+}
+
+pub struct Uuid(pub u128);
+
+impl MCData for Uuid {
+    async fn read<R: AsyncReadExt + Unpin>(reader: &mut R) -> tokio::io::Result<Self> {
+        Ok(Uuid(reader.read_u128().await?))
+    }
+
+    async fn write<W>(&self, writer: &mut W) -> tokio::io::Result<()>
+    where
+        W: AsyncWriteExt + Unpin,
+    {
+        writer.write_u128(self.0).await
+    }
+
+    fn byte_size(&self) -> usize {
+        16
     }
 }
