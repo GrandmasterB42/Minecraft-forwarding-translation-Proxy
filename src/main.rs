@@ -4,7 +4,9 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
-use tracing::{Instrument, Level, debug, error, info, span, trace, warn};
+use tracing::{
+    Instrument, Level, debug, error, info, level_filters::LevelFilter, span, trace, warn,
+};
 
 use crate::{
     packets::{
@@ -21,9 +23,14 @@ mod types;
 // TODO: Don't forget logging and ctrl-c handling
 #[tokio::main]
 async fn main() {
-    // TODO: Adjust tracing level based on compilation profile
+    let debug_filter = if cfg!(debug_assertions) {
+        LevelFilter::TRACE
+    } else {
+        LevelFilter::INFO
+    };
+
     tracing_subscriber::fmt::fmt()
-        .with_max_level(tracing::Level::TRACE)
+        .with_max_level(debug_filter)
         .init();
 
     let backend_address = "127.0.0.1:35565";
