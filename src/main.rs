@@ -8,6 +8,7 @@ use tokio::{
 use tracing::{
     Instrument, Level, debug, error, info, level_filters::LevelFilter, span, trace, warn,
 };
+use tracing_subscriber::{fmt, layer::SubscriberExt, reload, util::SubscriberInitExt};
 
 use crate::{
     config::{ConfigError, TomlConfig},
@@ -28,14 +29,17 @@ static CONFIG_PATH: &str = "Config.toml";
 // TODO: Don't forget logging and ctrl-c handling
 #[tokio::main]
 async fn main() {
-    let debug_filter = if cfg!(debug_assertions) {
+    let default_filter = if cfg!(debug_assertions) {
         LevelFilter::TRACE
     } else {
         LevelFilter::INFO
     };
 
-    tracing_subscriber::fmt::fmt()
-        .with_max_level(debug_filter)
+    let (filter, reload_handle) = reload::Layer::new(default_filter);
+
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(fmt::Layer::default())
         .init();
 
     let config = match TomlConfig::at_location(Path::new(CONFIG_PATH)).await {
@@ -54,6 +58,11 @@ async fn main() {
             return;
         }
     };
+
+    trace!("Now updating the log level according to the config");
+    reload_handle
+        .modify(|filter| *filter = config.log_level.into())
+        .expect("Failed to update log level");
 
     let client_listener = match TcpListener::bind(config.bind_address).await {
         Ok(listener) => {

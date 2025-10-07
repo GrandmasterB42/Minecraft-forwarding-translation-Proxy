@@ -10,3 +10,6 @@ forwarding_secret = ""
 # The trusted addresses that are allowed to connect, keep this empty to allow all connections
 trusted_addresses = []
 
+# The logging verbosity of this proxy, it can be one of: "off", "error", "warn", "info", "debug" or "trace"
+log_level = "info"
+

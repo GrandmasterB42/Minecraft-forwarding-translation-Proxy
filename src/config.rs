@@ -8,7 +8,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
 };
 use toml_example::TomlExample;
-use tracing::{info, trace};
+use tracing::{info, level_filters::LevelFilter, trace};
 
 #[derive(TomlExample, Deserialize)]
 pub struct TomlConfig {
@@ -23,6 +23,9 @@ pub struct TomlConfig {
     /// The trusted addresses that are allowed to connect, keep this empty to allow all connections
     #[toml_example(default = [])]
     pub trusted_addresses: Vec<SocketAddr>,
+    /// The logging verbosity of this proxy, it can be one of: "off", "error", "warn", "info", "debug" or "trace"
+    #[toml_example(default = "info")]
+    pub log_level: ConfigLevelFilter,
 }
 
 impl TomlConfig {
@@ -97,6 +100,66 @@ impl std::fmt::Display for ConfigError {
                     .expect("Failed to get canonicalized path of config file")
                     .display()
             ),
+        }
+    }
+}
+
+// A Wrapper around LevelFilter for deserializing
+pub enum ConfigLevelFilter {
+    Off,
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
+}
+
+impl<'de> Deserialize<'de> for ConfigLevelFilter {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct CaseInsensitiveVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for CaseInsensitiveVisitor {
+            type Value = ConfigLevelFilter;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a string matching any case-insensitive variant of MyEnum")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<ConfigLevelFilter, E>
+            where
+                E: serde::de::Error,
+            {
+                match value.to_lowercase().as_str() {
+                    "off" => Ok(ConfigLevelFilter::Off),
+                    "error" => Ok(ConfigLevelFilter::Error),
+                    "warn" => Ok(ConfigLevelFilter::Warn),
+                    "info" => Ok(ConfigLevelFilter::Info),
+                    "debug" => Ok(ConfigLevelFilter::Debug),
+                    "trace" => Ok(ConfigLevelFilter::Trace),
+                    _ => Err(serde::de::Error::unknown_variant(
+                        value,
+                        &["off", "error", "warn", "info", "debug", "trace"],
+                    )),
+                }
+            }
+        }
+
+        deserializer.deserialize_str(CaseInsensitiveVisitor)
+    }
+}
+
+impl From<ConfigLevelFilter> for LevelFilter {
+    fn from(level: ConfigLevelFilter) -> Self {
+        match level {
+            ConfigLevelFilter::Off => LevelFilter::OFF,
+            ConfigLevelFilter::Error => LevelFilter::ERROR,
+            ConfigLevelFilter::Warn => LevelFilter::WARN,
+            ConfigLevelFilter::Info => LevelFilter::INFO,
+            ConfigLevelFilter::Debug => LevelFilter::DEBUG,
+            ConfigLevelFilter::Trace => LevelFilter::TRACE,
         }
     }
 }
