@@ -179,6 +179,6 @@ impl MCData for Uuid {
     }
 
     fn byte_size(&self) -> usize {
-        16
+        std::mem::size_of::<Self>()
     }
 }
