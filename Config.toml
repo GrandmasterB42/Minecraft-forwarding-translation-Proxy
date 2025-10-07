@@ -1,0 +1,12 @@
+# The Address this proxy will try to listen to
+bind_address = "127.0.0.1:45565"
+
+# The Address this proxy will try to forward the traffic to
+backend_address = "127.0.0.1:35565"
+
+# The Velocity forwarding secret, alternatively you can set the FORWARDING_SECRET environment variable
+forwarding_secret = ""
+
+# The trusted addresses that are allowed to connect, keep this empty to allow all connections
+trusted_addresses = []
+

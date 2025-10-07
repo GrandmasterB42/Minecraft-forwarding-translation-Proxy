@@ -1,14 +1,16 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, path::Path};
 
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
+
 use tracing::{
     Instrument, Level, debug, error, info, level_filters::LevelFilter, span, trace, warn,
 };
 
 use crate::{
+    config::{ConfigError, TomlConfig},
     packets::{
         Handshake, LoginStart, ReadPacket, VelocityLoginPluginRequest, VelocityLoginPluginResponse,
         WritePacket,
@@ -16,8 +18,11 @@ use crate::{
     types::{MCData, MCString, VarInt},
 };
 
+mod config;
 mod packets;
 mod types;
+
+static CONFIG_PATH: &str = "Config.toml";
 
 // TODO: Investigate something like https://github.com/belohnung/minecraft-varint/tree/master for varint decoding
 // TODO: Don't forget logging and ctrl-c handling
@@ -33,16 +38,33 @@ async fn main() {
         .with_max_level(debug_filter)
         .init();
 
-    let backend_address = "127.0.0.1:35565";
-    let listen_address = "127.0.0.1:45565";
+    let config = match TomlConfig::at_location(Path::new(CONFIG_PATH)).await {
+        Ok(config) => config,
+        Err(e) => {
+            match e {
+                ConfigError::Creation(_)
+                | ConfigError::Read(_)
+                | ConfigError::Write(_)
+                | ConfigError::Parse(_)
+                | ConfigError::NoSecret => {
+                    error!("{e}");
+                }
+                ConfigError::CreatedNew(_) => info!("{e}"),
+            };
+            return;
+        }
+    };
 
-    let client_listener = match TcpListener::bind(listen_address).await {
+    let client_listener = match TcpListener::bind(config.bind_address).await {
         Ok(listener) => {
-            info!("Listening for client connections on {listen_address}");
+            info!(
+                "Listening for client connections on {}",
+                config.bind_address
+            );
             listener
         }
         Err(e) => {
-            error!("Failed to bind to {listen_address}: {e}");
+            error!("Failed to bind to {}: {e}", config.bind_address);
             return;
         }
     };
@@ -52,11 +74,16 @@ async fn main() {
     // Wait for connections
     while let Ok((client_connection, client_adress)) = client_listener.accept().await {
         let connection_span = span!(Level::TRACE, "client_connection", client = %client_adress);
-
-        // TODO: Make this configurable to only trust a certain adress
         trace!(parent: &connection_span, "New client connection from {client_adress}");
 
-        let Ok(backend_connection) = TcpStream::connect(backend_address).await else {
+        if !config.trusted_addresses.is_empty()
+            && !config.trusted_addresses.contains(&client_adress)
+        {
+            warn!(parent: &connection_span, "Rejected connection from untrusted address {client_adress}");
+            continue;
+        }
+
+        let Ok(backend_connection) = TcpStream::connect(config.backend_address).await else {
             error!(parent: &connection_span, "Failed to connect to backend server");
             continue;
         };
