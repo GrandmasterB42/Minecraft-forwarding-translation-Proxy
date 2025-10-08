@@ -11,7 +11,7 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, reload, util::SubscriberInit
 use crate::{
     config::{ConfigError, TomlConfig},
     packets::{
-        GenericPacket, Handshake, InterpretError, LoginStart, ReadPacketExt,
+        Disconnect, GenericPacket, Handshake, InterpretError, LoginStart, ReadPacketExt,
         VelocityLoginPluginRequest, VelocityLoginPluginResponse, WritePacketExt,
     },
 };
@@ -79,16 +79,51 @@ async fn main() {
     let mut connection_id = 0i32;
 
     // Wait for connections
-    while let Ok((client_connection, client_adress)) = client_listener.accept().await {
+    while let Ok((mut client_connection, client_adress)) = client_listener.accept().await {
         let connection_span = span!(Level::TRACE, "client_connection", client = %client_adress);
         trace!(parent: &connection_span, "New client connection from {client_adress}");
 
-        // TODO: Disconnect client immediatly with error message
+        // Reject untrusted connections
         if !config.trusted_ips.is_empty() && !config.trusted_ips.contains(&client_adress.ip()) {
-            warn!(parent: &connection_span, "Rejected connection from untrusted address {client_adress}");
+            warn!(parent: &connection_span, "Rejecting connection from untrusted address {client_adress}");
+            let handshake = match client_connection.read_packet::<Handshake>().await {
+                Ok(handshake) => handshake,
+                Err(e) => {
+                    error!("Failed to read handshake from client {client_adress}: {e}");
+                    return;
+                }
+            };
+            match *handshake.next_state {
+                1 => trace!(
+                    "Rejecting untrusted connection from {client_adress} for a status request"
+                ),
+                2 => {
+                    warn!(
+                        "Rejecting untrusted connection from {client_adress} for a login request"
+                    );
+
+                    let Ok(_) = client_connection
+                        .write_packet(&Disconnect::reason(
+                            "You are not allowed to connect to this server directly!",
+                        ))
+                        .await
+                    else {
+                        warn!(
+                            "Failed to send disconnect packet to untrusted client {client_adress}"
+                        );
+                        return;
+                    };
+                }
+                3 => warn!(
+                    "Rejecting untrusted connection from {client_adress} for a transfer request"
+                ),
+                _ => (),
+            }
+            client_connection.shutdown().await.ok();
             continue;
         }
 
+        // Create a backend connection for this connection
         let Ok(backend_connection) = TcpStream::connect(config.backend_address).await else {
             error!(parent: &connection_span, "Failed to connect to backend server");
             continue;

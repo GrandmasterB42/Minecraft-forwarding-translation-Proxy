@@ -15,6 +15,9 @@ pub use velocity_plugin_request::VelocityLoginPluginRequest;
 mod velocity_plugin_response;
 pub use velocity_plugin_response::VelocityLoginPluginResponse;
 
+mod disconnect;
+pub use disconnect::Disconnect;
+
 mod generic;
 pub use generic::{GenericPacket, InterpretError};
 
