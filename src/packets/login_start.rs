@@ -6,8 +6,8 @@ use crate::{
 };
 
 pub struct LoginStart {
-    pub username: MCString, // Max length 16
-                            // It seems the UUID is only sent in later versions?
+    pub username: MCString<16>,
+    // It seems the UUID is only sent in later versions?
 }
 
 impl Packet for LoginStart {

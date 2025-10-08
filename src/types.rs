@@ -116,17 +116,18 @@ impl MCData for VarInt {
     }
 }
 
-// TODO: Enforce max length of MCString
+// The maximum length for any packet string is 32767, this the usage of an i16
+// Negative lengths should be accounted for when comparing against it
 #[derive(Clone)]
-pub struct MCString {
+pub struct MCString<const MAX_LEN: i16> {
     length: VarInt,
     value: String,
 }
 
-impl MCString {
+impl<const MAX_LEN: i16> MCString<MAX_LEN> {
     pub fn new(value: String) -> Result<Self, &'static str> {
         let length = VarInt::try_from(value.len() as i32)?;
-        if length.value > 32767 {
+        if value.len() > (MAX_LEN.unsigned_abs() as usize) * 3 + 3 {
             return Err("String is too long");
         }
         Ok(MCString { length, value })
@@ -137,9 +138,20 @@ impl MCString {
     }
 }
 
-impl MCData for MCString {
+impl<const MAX_LEN: i16> MCData for MCString<MAX_LEN> {
     async fn read<R: AsyncReadExt + Unpin>(reader: &mut R) -> tokio::io::Result<Self> {
         let length = VarInt::read(reader).await?;
+
+        if *length < 1 || *length > (MAX_LEN.abs() as i32) * 3 + 3 {
+            return Err(tokio::io::Error::new(
+                tokio::io::ErrorKind::InvalidData,
+                format!(
+                    "String length {} is invalid, maximum is {}",
+                    *length, MAX_LEN
+                ),
+            ));
+        }
+
         let mut buffer = vec![0u8; *length as usize];
         reader.read_exact(&mut buffer).await?;
         Ok(MCString {
@@ -161,7 +173,7 @@ impl MCData for MCString {
     }
 }
 
-impl std::fmt::Display for MCString {
+impl<const MAX_LEN: i16> std::fmt::Display for MCString<MAX_LEN> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.value.fmt(f)
     }

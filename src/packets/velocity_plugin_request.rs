@@ -33,7 +33,7 @@ impl Packet for VelocityLoginPluginRequest {
 impl WritePacket for VelocityLoginPluginRequest {
     async fn write<W: AsyncWriteExt + Unpin>(&self, mut writer: &mut W) -> tokio::io::Result<()> {
         self.connection_id.write(&mut writer).await?; // Message ID
-        MCString::new(String::from_utf8_lossy(b"velocity:player_info").into_owned())
+        MCString::<32767>::new(String::from_utf8_lossy(b"velocity:player_info").into_owned())
             .unwrap()
             .write(&mut writer)
             .await?; // Channel

@@ -9,17 +9,17 @@ pub struct VelocityLoginPluginResponse {
     pub connection_id: VarInt,
     pub version: VarInt,
     pub signature: [u8; 32],
-    pub client_address: MCString,
+    pub client_address: MCString<32767>,
     pub player_uuid: Uuid,
-    pub username: MCString, // Max length 16
+    pub username: MCString<16>,
     pub properties_length: VarInt,
     pub properties: Vec<Property>,
 }
 
 pub struct Property {
-    pub name: MCString,
-    pub value: MCString,
-    pub signature: Option<MCString>,
+    pub name: MCString<32767>,
+    pub value: MCString<32767>,
+    pub signature: Option<MCString<32767>>,
 }
 
 impl Property {

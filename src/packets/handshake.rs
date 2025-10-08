@@ -8,7 +8,7 @@ use crate::{
 
 pub struct Handshake {
     pub protocol_version: VarInt,
-    pub server_address: MCString,
+    pub server_address: MCString<32767>,
     pub server_port: u16,
     pub next_state: VarInt,
 }
@@ -16,7 +16,7 @@ pub struct Handshake {
 impl Handshake {
     pub async fn insert_forwarding_data(
         &mut self,
-        client_address: MCString,
+        client_address: MCString<32767>,
         player_uuid: Uuid,
         properties: &[Property],
     ) {
