@@ -12,8 +12,10 @@ tokio = { version = "1", features = [
     "time",
     "fs",
 ] }
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"
 toml = "0.9"
 toml-example = "0.16"
+hmac = "0.12.1"
+sha2 = "0.10.9"

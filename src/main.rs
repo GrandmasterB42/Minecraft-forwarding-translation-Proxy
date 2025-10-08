@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, path::Path};
+use std::{net::SocketAddr, path::Path, sync::Arc};
 
 use tokio::{
     io::AsyncWriteExt,
@@ -148,6 +148,7 @@ async fn main() {
                 client_adress,
                 backend_connection,
                 connection_id,
+                config.forwarding_secret.clone(),
             )
             .instrument(connection_span),
         );
@@ -160,8 +161,9 @@ async fn handle_connection(
     client_adress: SocketAddr,
     mut backend_connection: TcpStream,
     connection_id: i32,
+    secret: Arc<str>,
 ) {
-    // TODO: Support old handshakes
+    // TODO: Support old handshakes, is this necessary?
     // First, read the handshake from the client
     let mut handshake = match client_connection.read_packet::<Handshake>().await {
         Ok(handshake) => handshake,
@@ -220,15 +222,32 @@ async fn handle_connection(
             };
             trace!("Received login plugin response from client");
 
-            // TODO: Validate response
+            // Validate the response
             trace!("Validating login plugin response from proxy");
             if *response.connection_id != connection_id {
                 warn!("Client {client_adress} sent invalid connection id in login plugin response");
                 return;
             }
 
-            // Sending modified Handshake
+            let is_valid = response.validate(&secret);
+            if !is_valid {
+                warn!("Client {client_adress} sent invalid signature in login plugin response");
 
+                if let Err(e) = client_connection
+                    .write_packet(&Disconnect::reason(
+                        "Failed to verify your identity, please rejoin the server",
+                    ))
+                    .await
+                {
+                    warn!("Failed to send disconnect packet to client {client_adress}");
+                    debug!("Error: {e}");
+                }
+
+                return;
+            }
+            trace!("Forwarding data was valid, continuing with modified handshake");
+
+            // Sending modified Handshake
             handshake
                 .insert_forwarding_data(
                     response.client_address,

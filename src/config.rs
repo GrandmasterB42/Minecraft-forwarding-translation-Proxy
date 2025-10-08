@@ -2,6 +2,7 @@ use serde::Deserialize;
 use std::{
     net::{IpAddr, SocketAddr},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 use tokio::{
     fs::{File, OpenOptions},
@@ -19,7 +20,7 @@ pub struct TomlConfig {
     #[toml_example(default = "127.0.0.1:35565")]
     pub backend_address: SocketAddr,
     /// The Velocity forwarding secret, alternatively you can set the FORWARDING_SECRET environment variable
-    pub forwarding_secret: String,
+    pub forwarding_secret: Arc<str>,
     /// The trusted ips that are allowed to connect, keep this empty to allow all connections
     #[toml_example(default = [])]
     pub trusted_ips: Vec<IpAddr>,
@@ -64,7 +65,9 @@ impl TomlConfig {
 
         config.forwarding_secret = if config.forwarding_secret.is_empty() {
             trace!("Using FORWARDING_SECRET from environment");
-            std::env::var("FORWARDING_SECRET").map_err(|_| ConfigError::NoSecret)?
+            std::env::var("FORWARDING_SECRET")
+                .map_err(|_| ConfigError::NoSecret)?
+                .into()
         } else {
             config.forwarding_secret
         };

@@ -1,4 +1,6 @@
-use tokio::io::AsyncReadExt;
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
+use tokio::io::{AsyncReadExt, BufReader};
 
 use crate::{
     packets::{Packet, ReadPacket},
@@ -9,6 +11,7 @@ pub struct VelocityLoginPluginResponse {
     pub connection_id: VarInt,
     pub version: VarInt,
     pub signature: [u8; 32],
+    raw_remaining_data: Vec<u8>, // Store any remaining data again for validation
     pub client_address: MCString<32767>,
     pub player_uuid: Uuid,
     pub username: MCString<16>,
@@ -31,6 +34,17 @@ impl Property {
     }
 }
 
+impl VelocityLoginPluginResponse {
+    pub fn validate(&self, secret: &str) -> bool {
+        Hmac::<Sha256>::new_from_slice(secret.as_bytes())
+            .map(|mut hmac| {
+                hmac.update(&self.raw_remaining_data);
+                hmac.verify((&self.signature).into()).is_ok()
+            })
+            .unwrap_or(false)
+    }
+}
+
 impl Packet for VelocityLoginPluginResponse {
     const PACKET_ID: Option<u8> = Some(0x02);
 
@@ -50,7 +64,7 @@ impl Packet for VelocityLoginPluginResponse {
 impl ReadPacket for VelocityLoginPluginResponse {
     async fn read<R: AsyncReadExt + Unpin>(
         reader: &mut R,
-        _expected_length: VarInt,
+        expected_length: VarInt,
     ) -> tokio::io::Result<Self> {
         let connection_id = VarInt::read(reader).await?;
 
@@ -66,6 +80,13 @@ impl ReadPacket for VelocityLoginPluginResponse {
 
         let mut signature = [0u8; 32];
         reader.read_exact(&mut signature).await?;
+
+        // Read all the extra data into a buffer for validation later
+        let bytes_read_so_far = connection_id.byte_size() + 1 + 32; // connection_id + has_payload + signature
+        let remaining_bytes = *expected_length as usize - bytes_read_so_far;
+        let mut raw_remaining_data = vec![0u8; remaining_bytes];
+        reader.read_exact(&mut raw_remaining_data).await?;
+        let reader = &mut BufReader::new(&raw_remaining_data[..]);
 
         let version = VarInt::read(reader).await?;
 
@@ -97,6 +118,7 @@ impl ReadPacket for VelocityLoginPluginResponse {
             connection_id,
             version,
             signature,
+            raw_remaining_data,
             client_address,
             player_uuid,
             username,
