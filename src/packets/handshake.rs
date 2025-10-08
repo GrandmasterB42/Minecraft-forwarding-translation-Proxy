@@ -34,16 +34,16 @@ impl Handshake {
                 forwarding_data.push('{');
 
                 forwarding_data.push_str(r#""name":""#);
-                forwarding_data.push_str(&property.name.to_string());
+                forwarding_data.push_str(property.name.as_str());
                 forwarding_data.push_str("\",");
 
                 forwarding_data.push_str(r#""value":""#);
-                forwarding_data.push_str(&property.value.to_string());
+                forwarding_data.push_str(property.value.as_str());
                 forwarding_data.push('"');
 
                 if let Some(signature) = &property.signature {
                     forwarding_data.push_str(r#","signature":""#);
-                    forwarding_data.push_str(&signature.to_string());
+                    forwarding_data.push_str(signature.as_str());
                     forwarding_data.push('\"');
                 }
                 forwarding_data.push_str("},");

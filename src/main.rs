@@ -5,7 +5,9 @@ use tokio::{
     net::{TcpListener, TcpStream},
 };
 
-use tracing::{Instrument, Level, error, info, level_filters::LevelFilter, span, trace, warn};
+use tracing::{
+    Instrument, Level, debug, error, info, level_filters::LevelFilter, span, trace, warn,
+};
 use tracing_subscriber::{fmt, layer::SubscriberExt, reload, util::SubscriberInitExt};
 
 use crate::{
@@ -57,9 +59,11 @@ async fn main() {
     };
 
     trace!("Now updating the log level according to the config");
-    reload_handle
-        .modify(|filter| *filter = config.log_level.into())
-        .expect("Failed to update log level");
+    if let Err(e) = reload_handle.modify(|filter| *filter = config.log_level.into()) {
+        error!("Failed to update log level");
+        debug!("Error: {e}");
+        return;
+    };
 
     // Start listening for clients
     let client_listener = match TcpListener::bind(config.bind_address).await {
@@ -102,15 +106,16 @@ async fn main() {
                         "Rejecting untrusted connection from {client_adress} for a login request"
                     );
 
-                    let Ok(_) = client_connection
+                    if let Err(e) = client_connection
                         .write_packet(&Disconnect::reason(
                             "You are not allowed to connect to this server directly!",
                         ))
                         .await
-                    else {
+                    {
                         warn!(
                             "Failed to send disconnect packet to untrusted client {client_adress}"
                         );
+                        debug!("Error: {e}");
                         return;
                     };
                 }
@@ -169,17 +174,17 @@ async fn handle_connection(
     match *handshake.next_state {
         1 => {
             trace!("Client {client_adress} is requesting status");
-            let Ok(_) = backend_connection.write_packet(&handshake).await else {
-                warn!("Failed to forward status handshake to backend");
+            if let Err(e) = backend_connection.write_packet(&handshake).await {
+                warn!("Failed to forward status handshake to backend: {e}");
                 return;
             };
 
             // Let them to the status exchange normally
-            let Ok(_) =
-                tokio::io::copy_bidirectional(&mut client_connection, &mut backend_connection)
-                    .await
-            else {
+            if let Err(e) =
+                tokio::io::copy_bidirectional(&mut client_connection, &mut backend_connection).await
+            {
                 warn!("Failed to forward status data between client and backend");
+                debug!("Error: {e}");
                 return;
             };
         }
@@ -197,11 +202,11 @@ async fn handle_connection(
             };
 
             trace!("Sending login plugin request to proxy");
-            let Ok(_) = client_connection
+            if let Err(e) = client_connection
                 .write_packet(&VelocityLoginPluginRequest::new(connection_id))
                 .await
-            else {
-                warn!("Failed to send login plugin request to proxy");
+            {
+                warn!("Failed to send login plugin request to proxy: {e}");
                 return;
             };
 
@@ -232,15 +237,15 @@ async fn handle_connection(
                 )
                 .await;
 
-            let Ok(_) = backend_connection.write_packet(&handshake).await else {
-                warn!("Failed to forward status handshake to backend");
+            if let Err(e) = backend_connection.write_packet(&handshake).await {
+                warn!("Failed to forward status handshake to backend: {e}");
                 return;
             };
 
             login_start.username = response.username;
             // Forward the captured login start packet
-            let Ok(_) = backend_connection.write_packet(&login_start).await else {
-                warn!("Failed to forward login start packet to backend");
+            if let Err(e) = backend_connection.write_packet(&login_start).await {
+                warn!("Failed to forward login start packet to backend: {e}");
                 return;
             };
 
@@ -261,11 +266,10 @@ async fn handle_connection(
             }
 
             info!("Client {client_adress} authenticated successfully, now forwarding...");
-            let Ok(_) =
-                tokio::io::copy_bidirectional(&mut client_connection, &mut backend_connection)
-                    .await
-            else {
-                warn!("Failed while forwarding normal server-client interaction");
+            if let Err(e) =
+                tokio::io::copy_bidirectional(&mut client_connection, &mut backend_connection).await
+            {
+                warn!("Failed while forwarding normal server-client interaction: {e}");
                 return;
             };
             info!("Client {client_adress} disconnected");
