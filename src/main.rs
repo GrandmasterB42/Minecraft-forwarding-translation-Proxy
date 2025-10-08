@@ -131,7 +131,6 @@ async fn handle_connection(
         }
     };
 
-    // TODO: Look into how much flushing is really needed
     match *handshake.next_state {
         1 => {
             trace!("Client {client_adress} is requesting status");
@@ -162,18 +161,12 @@ async fn handle_connection(
                 return;
             };
 
-            // Send Request to the proxy
+            trace!("Sending login plugin request to proxy");
             let Ok(_) = client_connection
                 .write_packet(&VelocityLoginPluginRequest::new(connection_id))
                 .await
             else {
                 warn!("Failed to send login plugin request to proxy");
-                return;
-            };
-
-            trace!("Sending login plugin request to proxy");
-            let Ok(_) = client_connection.flush().await else {
-                warn!("Failed to flush login plugin request to proxy");
                 return;
             };
 
@@ -231,11 +224,6 @@ async fn handle_connection(
                     }
                 }
             }
-
-            let Ok(_) = backend_connection.flush().await else {
-                error!("failed to send all packets to the server before initiating connection");
-                return;
-            };
 
             info!("Client {client_adress} authenticated successfully, now forwarding...");
             let Ok(_) =
