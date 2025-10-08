@@ -7,8 +7,8 @@ backend_address = "127.0.0.1:35565"
 # The Velocity forwarding secret, alternatively you can set the FORWARDING_SECRET environment variable
 forwarding_secret = ""
 
-# The trusted addresses that are allowed to connect, keep this empty to allow all connections
-trusted_addresses = []
+# The trusted ips that are allowed to connect, keep this empty to allow all connections
+trusted_ips = []
 
 # The logging verbosity of this proxy, it can be one of: "off", "error", "warn", "info", "debug" or "trace"
 log_level = "info"

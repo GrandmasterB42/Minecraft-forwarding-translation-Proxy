@@ -1,6 +1,6 @@
 use serde::Deserialize;
 use std::{
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     path::{Path, PathBuf},
 };
 use tokio::{
@@ -20,9 +20,9 @@ pub struct TomlConfig {
     pub backend_address: SocketAddr,
     /// The Velocity forwarding secret, alternatively you can set the FORWARDING_SECRET environment variable
     pub forwarding_secret: String,
-    /// The trusted addresses that are allowed to connect, keep this empty to allow all connections
+    /// The trusted ips that are allowed to connect, keep this empty to allow all connections
     #[toml_example(default = [])]
-    pub trusted_addresses: Vec<SocketAddr>,
+    pub trusted_ips: Vec<IpAddr>,
     /// The logging verbosity of this proxy, it can be one of: "off", "error", "warn", "info", "debug" or "trace"
     #[toml_example(default = "info")]
     pub log_level: ConfigLevelFilter,

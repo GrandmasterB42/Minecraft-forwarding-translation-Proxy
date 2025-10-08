@@ -83,9 +83,8 @@ async fn main() {
         let connection_span = span!(Level::TRACE, "client_connection", client = %client_adress);
         trace!(parent: &connection_span, "New client connection from {client_adress}");
 
-        if !config.trusted_addresses.is_empty()
-            && !config.trusted_addresses.contains(&client_adress)
-        {
+        // TODO: Disconnect client immediatly with error message
+        if !config.trusted_ips.is_empty() && !config.trusted_ips.contains(&client_adress.ip()) {
             warn!(parent: &connection_span, "Rejected connection from untrusted address {client_adress}");
             continue;
         }
