@@ -15,6 +15,7 @@ pub trait MCData {
     fn byte_size(&self) -> usize;
 }
 
+#[derive(Clone, Copy)]
 pub struct VarInt {
     value: i32,
     bytes_needed: u8,
@@ -115,6 +116,8 @@ impl MCData for VarInt {
     }
 }
 
+// TODO: Enforce max length of MCString
+#[derive(Clone)]
 pub struct MCString {
     length: VarInt,
     value: String,
@@ -164,7 +167,16 @@ impl std::fmt::Display for MCString {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct Uuid(pub u128);
+
+impl Deref for Uuid {
+    type Target = u128;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl MCData for Uuid {
     async fn read<R: AsyncReadExt + Unpin>(reader: &mut R) -> tokio::io::Result<Self> {
