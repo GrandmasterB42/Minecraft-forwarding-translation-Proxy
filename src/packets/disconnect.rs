@@ -61,8 +61,6 @@ impl PlayDisconnect {
 }
 
 impl Packet<VersionDependent> for PlayDisconnect {
-    // TODO: This is version dependent, 0x40 is valid for Protocol Version < 67
-    // This needs to be accounted for, for Versions 1.12.2 and below
     const PACKET_ID: VersionDependent = VersionDependent(Self::protocol_id);
 
     fn byte_size(&self) -> usize {
