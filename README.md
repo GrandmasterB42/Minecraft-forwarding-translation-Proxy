@@ -1,21 +1,28 @@
 > [!CAUTION]
 > This project is under active development and will not work out of the box for you
 
-# Forwarding Translation Proxy
-
 > [!IMPORTANT]
 > This project does not work with the normal version of Velocity, as it assumes, that older server versions do not know about certain message types. I am looking into what to do about that
 
-> [!WARNING]
-> This project has *NOT* been extensively tested, please report any issues you find
+# Forwarding Translation Proxy
 
 A Minecraft Java Edition proxy intended for connecting old Minecraft Version servers, that only support legacy bungeecord forwarding, to Velocity Modern Forwarding Networks.
 
-> [!CAUTION]
-> The Proxy may be more secure through the use of the Modern Forwarding protocol, but the connection from this proxy to the backend server is still insecure.
-> Please make sure you have everything configured properly before you let people connect
+> [!WARNING]
+> This project has *NOT* been extensively tested, I am only testing on a 1.7.10 Modpack using [BungeeForge](https://github.com/caunt/BungeeForge)
+ for legacy forwarding. Please report any issues you find!
+
+> [!NOTE]
+> This project is, even though not tested for all versions, intended to work for Minecraft versions 1.7.2 to 1.12.2, as these are supported by Velocity, but don't support Modern Forwarding.
+> As I am not testing all of these versions, please report any issues and I will get to fixing them.
+> You are free to open an issue if you have another usecase in mind, if it's not too out of scope I will look into implementing it as well.
 
 ## How to use
+
+> [!CAUTION]
+> The connection to this Proxy may be more secure through the use of the Modern Forwarding protocol,
+> but the connection from this proxy to the backend server is still insecure.
+> Please make sure you have everything configured properly before you let people connect
 
 You currently need to compile the project yourself. I will look into providing pre-compiled binaries and docker containers later.
 
