@@ -3,7 +3,7 @@ use sha2::Sha256;
 use tokio::io::{AsyncReadExt, BufReader};
 
 use crate::{
-    packets::{Packet, ReadPacket},
+    packets::{Packet, id::Managed, packet_read::ReadPacket},
     types::{MCData, MCString, Uuid, VarInt},
 };
 
@@ -45,8 +45,8 @@ impl VelocityLoginPluginResponse {
     }
 }
 
-impl Packet for VelocityLoginPluginResponse {
-    const PACKET_ID: Option<u8> = Some(0x02);
+impl Packet<Managed> for VelocityLoginPluginResponse {
+    const PACKET_ID: Managed = Managed(0x02);
 
     fn byte_size(&self) -> usize {
         self.connection_id.byte_size() // Message ID
@@ -76,8 +76,8 @@ impl ReadPacket for VelocityLoginPluginResponse {
                 "A Login Plugin Response Packet is expected to have a payload, but none was found",
             ));
         }
-        // Start of Custom Payload
 
+        // Start of Custom Payload
         let mut signature = [0u8; 32];
         reader.read_exact(&mut signature).await?;
 
@@ -85,6 +85,7 @@ impl ReadPacket for VelocityLoginPluginResponse {
         let bytes_read_so_far = connection_id.byte_size() + 1 + 32; // connection_id + has_payload + signature
         let remaining_bytes = *expected_length as usize - bytes_read_so_far;
         let mut raw_remaining_data = vec![0u8; remaining_bytes];
+
         reader.read_exact(&mut raw_remaining_data).await?;
         let reader = &mut BufReader::new(&raw_remaining_data[..]);
 
@@ -113,6 +114,7 @@ impl ReadPacket for VelocityLoginPluginResponse {
                 signature,
             });
         }
+        tracing::trace!("Read packet");
 
         Ok(VelocityLoginPluginResponse {
             connection_id,

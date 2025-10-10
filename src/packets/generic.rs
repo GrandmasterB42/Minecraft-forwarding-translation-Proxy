@@ -1,11 +1,19 @@
-use crate::{
-    packets::{Packet, ReadPacket, WritePacket},
-    types::VarInt,
-};
+use std::sync::Arc;
+
 use tokio::io::{AsyncReadExt, BufReader};
 
+use crate::{
+    packets::{
+        Packet,
+        id::{AsId, Managed, Manual, VersionDependent},
+        packet_read::ReadPacket,
+        packet_write::WritePacket,
+    },
+    types::VarInt,
+};
+
 pub struct GenericPacket {
-    pub data: Vec<u8>,
+    pub data: Arc<[u8]>,
 }
 
 #[derive(Debug)]
@@ -16,32 +24,44 @@ pub enum InterpretError {
     IoError(tokio::io::Error),
 }
 
-// A Generic packet that just holds the data as its contents
+impl From<tokio::io::Error> for InterpretError {
+    fn from(e: tokio::io::Error) -> Self {
+        InterpretError::IoError(e)
+    }
+}
+
 impl GenericPacket {
-    // Reinterpret the generic packet as a specific packet type, this currently requires the packet to have a packet ID
-    pub async fn try_interpret_as<P: Packet + ReadPacket>(&self) -> Result<P, InterpretError> {
+    pub async fn try_interpret_as<P: Packet<Managed> + ReadPacket>(
+        &self,
+    ) -> Result<P, InterpretError> {
+        self.internl_interpret_as::<P>(*P::PACKET_ID).await
+    }
+
+    pub async fn try_interpret_as_versioned<P: Packet<VersionDependent> + ReadPacket>(
+        &self,
+        protocol: i32,
+    ) -> Result<P, InterpretError> {
+        let packet_id = (P::PACKET_ID.0)(protocol).ok_or(InterpretError::InvalidPacketId)?;
+        self.internl_interpret_as::<P>(packet_id).await
+    }
+
+    async fn internl_interpret_as<P: ReadPacket + Packet<impl AsId>>(
+        &self,
+        packet_id: u8,
+    ) -> Result<P, InterpretError> {
+        let byte_size = self.data.len() - 1; // Account for packet id
         let mut reader = BufReader::new(&self.data[..]);
 
-        // Only parse into packets with a packet ID
-        let Some(packet_id) = P::PACKET_ID else {
-            return Err(InterpretError::InvalidPacketId);
-        };
-
         // Check packet id
-        let read_packet_id = reader.read_u8().await.map_err(InterpretError::IoError)?;
+        let read_packet_id = reader.read_u8().await?;
         if read_packet_id != packet_id {
             return Err(InterpretError::PacketIdMismatch(read_packet_id));
         }
 
         // Read the generic data as the target packet
-        let packet = P::read(
-            &mut reader,
-            VarInt::new(self.data.len() as i32 - 1).unwrap(),
-        )
-        .await
-        .map_err(InterpretError::IoError)?;
+        let packet = P::read(&mut reader, VarInt::new(byte_size as i32).unwrap()).await?;
 
-        if self.data.len() != packet.byte_size() + 1 {
+        if byte_size != packet.byte_size() {
             return Err(InterpretError::PacketLengthMismatch);
         }
 
@@ -49,8 +69,8 @@ impl GenericPacket {
     }
 }
 
-impl Packet for GenericPacket {
-    const PACKET_ID: Option<u8> = None;
+impl Packet<Manual> for GenericPacket {
+    const PACKET_ID: Manual = Manual;
 
     fn byte_size(&self) -> usize {
         self.data.len()
@@ -64,7 +84,9 @@ impl ReadPacket for GenericPacket {
     ) -> tokio::io::Result<Self> {
         let mut data = vec![0u8; *expected_length as usize];
         reader.read_exact(&mut data).await?;
-        Ok(GenericPacket { data })
+        Ok(GenericPacket {
+            data: Arc::from(data),
+        })
     }
 }
 

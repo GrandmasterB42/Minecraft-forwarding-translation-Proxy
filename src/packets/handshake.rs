@@ -2,7 +2,10 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::debug;
 
 use crate::{
-    packets::{Packet, ReadPacket, WritePacket, velocity_plugin_response::Property},
+    packets::{
+        Packet, id::Managed, packet_read::ReadPacket, packet_write::WritePacket,
+        velocity_plugin_response::Property,
+    },
     types::{MCData, MCString, Uuid, VarInt},
 };
 
@@ -57,8 +60,8 @@ impl Handshake {
     }
 }
 
-impl Packet for Handshake {
-    const PACKET_ID: Option<u8> = Some(0x00);
+impl Packet<Managed> for Handshake {
+    const PACKET_ID: Managed = Managed(0x00);
 
     fn byte_size(&self) -> usize {
         self.protocol_version.byte_size()

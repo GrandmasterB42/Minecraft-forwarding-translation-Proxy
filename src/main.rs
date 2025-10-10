@@ -1,10 +1,8 @@
-use std::{net::SocketAddr, path::Path, sync::Arc};
+use std::path::Path;
 
-use tokio::{
-    io::AsyncWriteExt,
-    net::{TcpListener, TcpStream},
-};
+use tokio::net::{TcpListener, TcpStream};
 
+use tokio_util::sync::CancellationToken;
 use tracing::{
     Instrument, Level, debug, error, info, level_filters::LevelFilter, span, trace, warn,
 };
@@ -12,20 +10,17 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, reload, util::SubscriberInit
 
 use crate::{
     config::{ConfigError, TomlConfig},
-    packets::{
-        Disconnect, GenericPacket, Handshake, InterpretError, LoginStart, ReadPacketExt,
-        VelocityLoginPluginRequest, VelocityLoginPluginResponse, WritePacketExt,
-    },
+    connection::{handle_connection, reject_untrusted},
 };
 
 mod config;
+mod connection;
 mod packets;
 mod types;
 
 static CONFIG_PATH: &str = "Config.toml";
 
 // TODO: Investigate something like https://github.com/belohnung/minecraft-varint/tree/master for varint decoding
-// TODO: Don't forget logging and ctrl-c handling
 #[tokio::main]
 async fn main() {
     // Setup all the logging
@@ -65,6 +60,10 @@ async fn main() {
         return;
     };
 
+    // Setup shutdown signal
+    let cancel = CancellationToken::new();
+    tokio::spawn(shutdown_signal(cancel.clone()));
+
     // Start listening for clients
     let client_listener = match TcpListener::bind(config.bind_address).await {
         Ok(listener) => {
@@ -83,48 +82,31 @@ async fn main() {
     let mut connection_id = 0i32;
 
     // Wait for connections
-    while let Ok((mut client_connection, client_adress)) = client_listener.accept().await {
+    loop {
+        // Wait for cancellation or accept new connection
+        let (mut client_connection, client_adress) = tokio::select! {
+            _ = cancel.cancelled() => {
+                trace!("Shutting down connection listener");
+                break;
+            }
+            accept_result = client_listener.accept() => {
+                match accept_result {
+                    Ok((connection, adress)) => (connection, adress),
+                    Err(e) => {
+                        error!("Failed to accept new client connection: {e:?}");
+                        continue;
+                    }
+                }
+            }
+        };
+
         let connection_span = span!(Level::TRACE, "client_connection", client = %client_adress);
         trace!(parent: &connection_span, "New client connection from {client_adress}");
 
         // Reject untrusted connections
         if !config.trusted_ips.is_empty() && !config.trusted_ips.contains(&client_adress.ip()) {
             warn!(parent: &connection_span, "Rejecting connection from untrusted address {client_adress}");
-            let handshake = match client_connection.read_packet::<Handshake>().await {
-                Ok(handshake) => handshake,
-                Err(e) => {
-                    error!("Failed to read handshake from client {client_adress}: {e}");
-                    return;
-                }
-            };
-            match *handshake.next_state {
-                1 => trace!(
-                    "Rejecting untrusted connection from {client_adress} for a status request"
-                ),
-                2 => {
-                    warn!(
-                        "Rejecting untrusted connection from {client_adress} for a login request"
-                    );
-
-                    if let Err(e) = client_connection
-                        .write_packet(&Disconnect::reason(
-                            "You are not allowed to connect to this server directly!",
-                        ))
-                        .await
-                    {
-                        warn!(
-                            "Failed to send disconnect packet to untrusted client {client_adress}"
-                        );
-                        debug!("Error: {e}");
-                        return;
-                    };
-                }
-                3 => warn!(
-                    "Rejecting untrusted connection from {client_adress} for a transfer request"
-                ),
-                _ => (),
-            }
-            client_connection.shutdown().await.ok();
+            reject_untrusted(&mut client_connection, client_adress).await;
             continue;
         }
 
@@ -134,6 +116,7 @@ async fn main() {
             continue;
         };
 
+        // Packets should be forwarded immediately
         let (Ok(()), Ok(())) = (
             client_connection.set_nodelay(true),
             backend_connection.set_nodelay(true),
@@ -145,201 +128,44 @@ async fn main() {
         tokio::task::spawn(
             handle_connection(
                 client_connection,
-                client_adress,
                 backend_connection,
+                client_adress,
                 connection_id,
                 config.forwarding_secret.clone(),
+                cancel.clone(),
             )
             .instrument(connection_span),
         );
         connection_id = connection_id.wrapping_add(1);
     }
+
+    info!("Successfully shut down");
 }
 
-async fn handle_connection(
-    mut client_connection: TcpStream,
-    client_adress: SocketAddr,
-    mut backend_connection: TcpStream,
-    connection_id: i32,
-    secret: Arc<str>,
-) {
-    // TODO: Support old handshakes, is this necessary?
-    // First, read the handshake from the client
-    let mut handshake = match client_connection.read_packet::<Handshake>().await {
-        Ok(handshake) => handshake,
-        Err(e) => {
-            error!("Failed to read handshake from client {client_adress}: {e}");
-            return;
-        }
+async fn shutdown_signal(cancel: CancellationToken) {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
     };
 
-    match *handshake.next_state {
-        1 => {
-            trace!("Client {client_adress} is requesting status");
-            if let Err(e) = backend_connection.write_packet(&handshake).await {
-                warn!("Failed to forward status handshake to backend: {e}");
-                return;
-            };
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
 
-            // Let them to the status exchange normally
-            if let Err(e) =
-                tokio::io::copy_bidirectional(&mut client_connection, &mut backend_connection).await
-            {
-                warn!("Failed to forward status data between client and backend");
-                debug!("Error: {e}");
-                return;
-            };
-        }
-        2 => {
-            trace!("Client {client_adress} is requesting login");
-            info!(
-                "Client from {client_adress} is attempting to log in with protocol: {}",
-                *handshake.protocol_version
-            );
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
 
-            // Read the Login Start Packet
-            let Ok(mut login_start) = client_connection.read_packet::<LoginStart>().await else {
-                warn!("Failed to read login start packet from client");
-                return;
-            };
+    tokio::select! {
+        _ = ctrl_c => (),
+        _ = terminate => (),
+    };
 
-            trace!("Sending login plugin request to proxy");
-            if let Err(e) = client_connection
-                .write_packet(&VelocityLoginPluginRequest::new(connection_id))
-                .await
-            {
-                warn!("Failed to send login plugin request to proxy: {e}");
-                return;
-            };
+    info!("Starting to shut down...");
 
-            trace!("Waiting for login plugin response from proxy");
-            let (buffer, response) = match buffer_until_response(&mut client_connection).await {
-                Ok((buffer, response)) => (buffer, response),
-                Err(e) => {
-                    warn!("Failed to read login plugin response from client {client_adress}: {e}");
-                    return;
-                }
-            };
-            trace!("Received login plugin response from client");
-
-            // Validate the response
-            trace!("Validating login plugin response from proxy");
-            if *response.connection_id != connection_id {
-                warn!("Client {client_adress} sent invalid connection id in login plugin response");
-                return;
-            }
-
-            let is_valid = response.validate(&secret);
-            if !is_valid {
-                warn!("Client {client_adress} sent invalid signature in login plugin response");
-
-                if let Err(e) = client_connection
-                    .write_packet(&Disconnect::reason(
-                        "Failed to verify your identity, please rejoin the server",
-                    ))
-                    .await
-                {
-                    warn!("Failed to send disconnect packet to client {client_adress}");
-                    debug!("Error: {e}");
-                }
-
-                return;
-            }
-            trace!("Forwarding data was valid, continuing with modified handshake");
-
-            // Sending modified Handshake
-            handshake
-                .insert_forwarding_data(
-                    response.client_address,
-                    response.player_uuid,
-                    &response.properties,
-                )
-                .await;
-
-            if let Err(e) = backend_connection.write_packet(&handshake).await {
-                warn!("Failed to forward status handshake to backend: {e}");
-                return;
-            };
-
-            login_start.username = response.username;
-            // Forward the captured login start packet
-            if let Err(e) = backend_connection.write_packet(&login_start).await {
-                warn!("Failed to forward login start packet to backend: {e}");
-                return;
-            };
-
-            // Forward the buffered packets
-            if !buffer.is_empty() {
-                trace!(
-                    "Forwarding {} bytes of buffered packets to backend",
-                    buffer.len()
-                );
-
-                for packet in &buffer {
-                    trace!("Forwarding buffered packet with id {:x}", packet.data[0]);
-                    if let Err(e) = backend_connection.write_packet(packet).await {
-                        warn!("Failed to forward buffered packet to backend: {e}");
-                        return;
-                    }
-                }
-            }
-
-            info!("Client {client_adress} authenticated successfully, now forwarding...");
-            if let Err(e) =
-                tokio::io::copy_bidirectional(&mut client_connection, &mut backend_connection).await
-            {
-                warn!("Failed while forwarding normal server-client interaction: {e}");
-                return;
-            };
-            info!("Client {client_adress} disconnected");
-        }
-        3 => {
-            trace!("Client {client_adress} is requesting transfer");
-            return;
-        }
-        _ => {
-            error!("Client {client_adress} sent invalid handshake packet");
-            return;
-        }
-    }
-
-    trace!("Connection from {client_adress} closed");
-}
-
-async fn buffer_until_response(
-    client_connection: &mut TcpStream,
-) -> tokio::io::Result<(Vec<GenericPacket>, VelocityLoginPluginResponse)> {
-    let mut serverbound_buffer = Vec::new();
-    loop {
-        trace!("Reading next packet from client while waiting for login plugin response");
-        let packet = client_connection.read_packet::<GenericPacket>().await?;
-
-        trace!("Now looking if it was the login plugin response");
-        match packet
-            .try_interpret_as::<VelocityLoginPluginResponse>()
-            .await
-        {
-            Ok(response) => {
-                trace!("Found login plugin response packet");
-                return Ok((serverbound_buffer, response));
-            }
-            Err(e) => match e {
-                InterpretError::PacketIdMismatch(id) => {
-                    trace!(
-                        "Buffering packet with id {id:x} while waiting for login plugin response"
-                    );
-                    serverbound_buffer.push(packet);
-                }
-                InterpretError::IoError(e) => {
-                    return Err(e);
-                }
-                _ => {
-                    warn!(
-                        "Encountered unexpected error while trying to read Velocity Plugin Response packet: {e:?}, continuing anyway"
-                    );
-                    continue;
-                }
-            },
-        };
-    }
+    cancel.cancel();
 }

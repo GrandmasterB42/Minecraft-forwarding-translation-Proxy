@@ -1,7 +1,7 @@
 use tokio::io::AsyncWriteExt;
 
 use crate::{
-    packets::{Packet, WritePacket},
+    packets::{Packet, id::Managed, packet_write::WritePacket},
     types::{MCData, MCString, VarInt},
 };
 
@@ -17,8 +17,8 @@ impl VelocityLoginPluginRequest {
     }
 }
 
-impl Packet for VelocityLoginPluginRequest {
-    const PACKET_ID: Option<u8> = Some(0x04);
+impl Packet<Managed> for VelocityLoginPluginRequest {
+    const PACKET_ID: Managed = Managed(0x04);
 
     fn byte_size(&self) -> usize {
         self.connection_id.byte_size() // Message ID

@@ -1,7 +1,7 @@
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::{
-    packets::{Packet, ReadPacket, WritePacket},
+    packets::{Packet, id::Managed, packet_read::ReadPacket, packet_write::WritePacket},
     types::{MCData, MCString, VarInt},
 };
 
@@ -10,8 +10,8 @@ pub struct LoginStart {
     // It seems the UUID is only sent in later versions?
 }
 
-impl Packet for LoginStart {
-    const PACKET_ID: Option<u8> = Some(0x00);
+impl Packet<Managed> for LoginStart {
+    const PACKET_ID: Managed = Managed(0x00);
 
     fn byte_size(&self) -> usize {
         self.username.byte_size()
