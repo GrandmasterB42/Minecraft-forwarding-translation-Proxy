@@ -18,7 +18,6 @@ mod types;
 
 static CONFIG_PATH: &str = "Config.toml";
 
-// TODO: Investigate something like https://github.com/belohnung/minecraft-varint/tree/master for varint decoding
 #[tokio::main]
 async fn main() {
     let log = Logging::init();

@@ -95,20 +95,24 @@ impl MCData for VarInt {
     where
         W: AsyncWriteExt + Unpin,
     {
-        let mut buffer = Vec::with_capacity(self.bytes_needed as usize);
+        let mut buffer = [0u8; 5];
         let mut value = self.value;
+        let mut i = 0;
         loop {
             let mut temp = (value & 0b01111111) as u8;
             value >>= 7;
             if value != 0 {
                 temp |= 0b10000000;
             }
-            buffer.push(temp);
+
+            buffer[i] = temp;
+            i += 1;
+
             if value == 0 {
                 break;
             }
         }
-        writer.write_all(&buffer).await
+        writer.write_all(&buffer[..i]).await
     }
 
     fn byte_size(&self) -> usize {
