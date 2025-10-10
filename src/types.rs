@@ -116,6 +116,40 @@ impl MCData for VarInt {
     }
 }
 
+#[repr(i32)]
+#[derive(Clone, Copy)]
+pub enum NextState {
+    Status = 1,
+    Login = 2,
+    Transfer = 3,
+}
+
+impl MCData for NextState {
+    async fn read<R: AsyncReadExt + Unpin>(reader: &mut R) -> tokio::io::Result<Self> {
+        let varint = VarInt::read(reader).await?;
+        match *varint {
+            1 => Ok(NextState::Status),
+            2 => Ok(NextState::Login),
+            3 => Ok(NextState::Transfer),
+            _ => Err(tokio::io::Error::new(
+                tokio::io::ErrorKind::InvalidData,
+                "Invalid NextState",
+            )),
+        }
+    }
+
+    fn byte_size(&self) -> usize {
+        VarInt::try_from(*self as i32).unwrap().byte_size()
+    }
+
+    async fn write<W>(&self, writer: &mut W) -> tokio::io::Result<()>
+    where
+        W: AsyncWriteExt + Unpin,
+    {
+        VarInt::try_from(*self as i32).unwrap().write(writer).await
+    }
+}
+
 // The maximum length for any packet string is 32767, this the usage of an i16
 // Negative lengths should be accounted for when comparing against it
 #[derive(Clone)]

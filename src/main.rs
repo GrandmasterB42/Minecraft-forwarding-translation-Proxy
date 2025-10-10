@@ -3,14 +3,12 @@ use std::path::Path;
 use tokio::net::{TcpListener, TcpStream};
 
 use tokio_util::sync::CancellationToken;
-use tracing::{
-    Instrument, Level, debug, error, info, level_filters::LevelFilter, span, trace, warn,
-};
-use tracing_subscriber::{fmt, layer::SubscriberExt, reload, util::SubscriberInitExt};
+use tracing::{Instrument, Level, error, info, level_filters::LevelFilter, span, trace, warn};
+use tracing_subscriber::{Registry, fmt, layer::SubscriberExt, reload, util::SubscriberInitExt};
 
 use crate::{
     config::{ConfigError, TomlConfig},
-    connection::{handle_connection, reject_untrusted},
+    connection::Connection,
 };
 
 mod config;
@@ -23,18 +21,7 @@ static CONFIG_PATH: &str = "Config.toml";
 // TODO: Investigate something like https://github.com/belohnung/minecraft-varint/tree/master for varint decoding
 #[tokio::main]
 async fn main() {
-    // Setup all the logging
-    let default_filter = if cfg!(debug_assertions) {
-        LevelFilter::TRACE
-    } else {
-        LevelFilter::INFO
-    };
-
-    let (filter, reload_handle) = reload::Layer::new(default_filter);
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(fmt::Layer::default())
-        .init();
+    let log = Logging::init();
 
     let config = match TomlConfig::at_location(Path::new(CONFIG_PATH)).await {
         Ok(config) => config,
@@ -53,10 +40,9 @@ async fn main() {
         }
     };
 
-    trace!("Now updating the log level according to the config");
-    if let Err(e) = reload_handle.modify(|filter| *filter = config.log_level.into()) {
-        error!("Failed to update log level");
-        debug!("Error: {e}");
+    trace!("Now updating the log filter according to the config");
+    if let Err(e) = log.update_filter(|f| *f = config.log_level.into()) {
+        error!("Failed to update log filter {e}");
         return;
     };
 
@@ -66,25 +52,24 @@ async fn main() {
 
     // Start listening for clients
     let client_listener = match TcpListener::bind(config.bind_address).await {
-        Ok(listener) => {
-            info!(
-                "Listening for client connections on {}",
-                config.bind_address
-            );
-            listener
-        }
+        Ok(listener) => listener,
         Err(e) => {
             error!("Failed to bind to {}: {e}", config.bind_address);
             return;
         }
     };
 
+    info!(
+        "Listening for client connections on {}",
+        config.bind_address
+    );
+
     let mut connection_id = 0i32;
 
     // Wait for connections
     loop {
         // Wait for cancellation or accept new connection
-        let (mut client_connection, client_adress) = tokio::select! {
+        let (client_connection, client_adress) = tokio::select! {
             _ = cancel.cancelled() => {
                 trace!("Shutting down connection listener");
                 break;
@@ -101,12 +86,24 @@ async fn main() {
         };
 
         let connection_span = span!(Level::TRACE, "client_connection", client = %client_adress);
+
+        let connection = match Connection::initiate(client_connection) {
+            Ok(c) => c,
+            Err(e) => {
+                error!(parent: &connection_span, "{e}");
+                continue;
+            }
+        };
+
         trace!(parent: &connection_span, "New client connection from {client_adress}");
 
         // Reject untrusted connections
         if !config.trusted_ips.is_empty() && !config.trusted_ips.contains(&client_adress.ip()) {
             warn!(parent: &connection_span, "Rejecting connection from untrusted address {client_adress}");
-            reject_untrusted(&mut client_connection, client_adress).await;
+            connection
+                .reject_untrusted()
+                .instrument(connection_span)
+                .await;
             continue;
         }
 
@@ -116,26 +113,25 @@ async fn main() {
             continue;
         };
 
-        // Packets should be forwarded immediately
-        let (Ok(()), Ok(())) = (
-            client_connection.set_nodelay(true),
-            backend_connection.set_nodelay(true),
-        ) else {
-            error!(parent: &connection_span, "Failed to disable TCP Delay for connection");
-            continue;
-        };
+        tokio::task::spawn({
+            let mut connection = match connection.with_backend(backend_connection, connection_id) {
+                Ok(c) => c,
+                Err(e) => {
+                    error!(parent: &connection_span, "{e}");
+                    continue;
+                }
+            };
 
-        tokio::task::spawn(
-            handle_connection(
-                client_connection,
-                backend_connection,
-                client_adress,
-                connection_id,
-                config.forwarding_secret.clone(),
-                cancel.clone(),
-            )
-            .instrument(connection_span),
-        );
+            let secret = config.forwarding_secret.clone();
+            let cancel = cancel.clone();
+
+            async move {
+                connection
+                    .handle(secret, cancel)
+                    .instrument(connection_span)
+                    .await
+            }
+        });
         connection_id = connection_id.wrapping_add(1);
     }
 
@@ -168,4 +164,30 @@ async fn shutdown_signal(cancel: CancellationToken) {
     info!("Starting to shut down...");
 
     cancel.cancel();
+}
+
+struct Logging {
+    reload_handle: reload::Handle<LevelFilter, Registry>,
+}
+
+impl Logging {
+    fn init() -> Self {
+        let default_filter = if cfg!(debug_assertions) {
+            LevelFilter::TRACE
+        } else {
+            LevelFilter::INFO
+        };
+
+        let (filter, reload_handle) = reload::Layer::new(default_filter);
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(fmt::Layer::default())
+            .init();
+
+        Self { reload_handle }
+    }
+
+    fn update_filter(&self, f: impl FnOnce(&mut LevelFilter)) -> Result<(), reload::Error> {
+        self.reload_handle.modify(|current| f(current))
+    }
 }

@@ -6,14 +6,14 @@ use crate::{
         Packet, id::Managed, packet_read::ReadPacket, packet_write::WritePacket,
         velocity_plugin_response::Property,
     },
-    types::{MCData, MCString, Uuid, VarInt},
+    types::{MCData, MCString, NextState, Uuid, VarInt},
 };
 
 pub struct Handshake {
     pub protocol_version: VarInt,
     pub server_address: MCString<32767>,
     pub server_port: u16,
-    pub next_state: VarInt,
+    pub next_state: NextState,
 }
 
 impl Handshake {
@@ -80,7 +80,7 @@ impl ReadPacket for Handshake {
             protocol_version: VarInt::read(reader).await?,
             server_address: MCString::read(reader).await?,
             server_port: reader.read_u16().await?,
-            next_state: VarInt::read(reader).await?,
+            next_state: NextState::read(reader).await?,
         })
     }
 }
