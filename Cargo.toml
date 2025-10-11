@@ -9,15 +9,18 @@ tokio = { version = "1", features = [
     "net",
     "macros",
     "io-util",
-    "time",
     "fs",
     "signal",
 ] }
 tokio-util = "0.7.16"
 serde = { version = "1", features = ["derive", "rc"] }
-tracing = "0.1"
+tracing = { version = "0.1", default-features = false, features = ["std"] }
 tracing-subscriber = "0.3"
-toml = "0.9"
+toml = { version = "0.9", default-features = false, features = [
+    "std",
+    "parse",
+    "serde",
+] }
 toml-example = "0.16"
 hmac = "0.12.1"
 sha2 = "0.10.9"
