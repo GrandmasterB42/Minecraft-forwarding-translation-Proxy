@@ -1,8 +1,5 @@
-> [!CAUTION]
-> This project is under active development and will not work out of the box for you
-
 > [!IMPORTANT]
-> This project does not work with the normal version of Velocity, as it assumes, that older server versions do not know about certain message types. I am looking into what to do about that
+> This project does not work with the normal version of Velocity, as it assumes, that older server versions do not know about certain message types. You will have to compile Velocity yourself. What exactly needs to be changed will be documented here soon.
 
 # Forwarding Translation Proxy
 
@@ -33,7 +30,7 @@ You currently need to compile the project yourself. I will look into providing p
     - `forwarding_secret`: This is the secret found in `forwarding.secret` in your Velocity configuration. You can also configure this through the environment variable `FORWARDING_SECRET`.
     - `trusted_ips`: This is a list of ip addresses that connections are allowed from, this should be the address of your Modern Proxy(s). Although not recommended, you can leave this empty to allow all connections if you know what you are doing or for development.
     - `log_level`: The logging verbosity of this proxy. Should not need to be adjusted unless you are developing or reporting an error.
-3. Point your Modern Proxy to whatever ip address and port you configured in `listen_address`.
+3. Point your *MODIFIED* Modern Proxy to whatever ip address and port you configured in `listen_address`.
 4. Make sure your backend server is configured to accept legacy bungeecord connections and is running at the specified `backend_address`.
 5. Start the application again, it should now be running and listening for connections, connecting your legacy server to it and your modern proxy.
 
