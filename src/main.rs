@@ -2,9 +2,6 @@ use std::path::Path;
 
 use tokio::net::{TcpListener, TcpStream};
 
-#[cfg(unix)]
-use tokio::signal::unix::SignalKind;
-
 use tokio_util::sync::CancellationToken;
 use tracing::{Instrument, Level, error, info, level_filters::LevelFilter, span, trace, warn};
 use tracing_subscriber::{Registry, fmt, layer::SubscriberExt, reload, util::SubscriberInitExt};
@@ -149,7 +146,7 @@ async fn shutdown_signal(cancel: CancellationToken) {
 
     #[cfg(unix)]
     let terminate = async {
-        tokio::signal::unix::signal(signal::unix::SignalKind::terminate())
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
             .expect("failed to install signal handler")
             .recv()
             .await;
