@@ -67,7 +67,7 @@ Extract the binary to your desired location
 
 ### Docker
 
-Pull and run the [Docker image](ghcr.io/grandmasterb42/minecraft-forwarding-translation-proxy:latest) from GitHub Container Registry:
+Pull and run the [Docker image](https://ghcr.io/grandmasterb42/minecraft-forwarding-translation-proxy:latest) from GitHub Container Registry:
 
 ```bash
 docker run -p <host-port>:<container-port> \
