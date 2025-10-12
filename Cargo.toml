@@ -24,3 +24,8 @@ toml = { version = "0.9", default-features = false, features = [
 toml-example = "0.16"
 hmac = "0.12.1"
 sha2 = "0.10.9"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
