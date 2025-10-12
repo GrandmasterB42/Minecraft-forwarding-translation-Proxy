@@ -16,9 +16,9 @@ A Minecraft Java Edition proxy intended for connecting old Minecraft Version ser
 > but the connection from this proxy to the backend server is still insecure.
 > Please make sure you have everything configured properly before you let people connect
 
-You currently need to compile the project yourself. I will look into providing pre-compiled binaries and docker containers later.
+Look at the [Running](#running) section for more information on how to run the proxy.
 
-1. Run the application, it will shut down at first and generate a `Config.toml` file, which can also be seen in this repository.
+1. If a `Config.toml` file, which can also be seen in this repository, does not exist, start the application once, it will create a default config file and then exit.
 2. Fill out the config options, this should be pretty self-explanatory, but here is an overview:
     - `listen_address`: You can configure the address this proxy is reachable at here, this is what your Modern Proxy forwards the connections to.
     - `backend_address`: The address of your backend server, this is your Minecraft server that only supports legacy bungeecord forwarding.
@@ -27,7 +27,7 @@ You currently need to compile the project yourself. I will look into providing p
     - `log_level`: The logging verbosity of this proxy. Should not need to be adjusted unless you are developing or reporting an error.
 3. Point your [*MODIFIED*](#proxy-compatibility) Modern Proxy to whatever ip address and port you configured in `listen_address`.
 4. Make sure your backend server is configured to accept legacy bungeecord connections and is running at the specified `backend_address`.
-5. Start the application again, it should now be running and listening for connections, connecting your legacy server to it and your modern proxy.
+5. Start the application (again), it should now be running and listening for connections, connecting your legacy server to it and your modern proxy.
 
 ## Proxy Compatibility
 
@@ -36,6 +36,45 @@ This application will most likely not work for you out of the box, I only tried 
 ### Modifying Velocity
 
 I recommend compiling Velocity yourself, the changes that need to be done are minor and easy to understand. You can inspect them in the [diff](https://github.com/PaperMC/Velocity/compare/dev/3.0.0...GrandmasterB42:Velocity:dev/3.0.0) and apply them yourself to whatever version of Velocity you want to use, it is probably similar for most versions.
+
+## Running
+
+### Compiling from source
+
+If you want to compile the proxy yourself:
+
+1. Install [Rust](https://rust-lang.org/tools/install/) (latest stable version)
+2. Clone this repository:
+
+   ```bash
+   git clone https://github.com/GrandmasterB42/forwarding_translation_proxy.git
+   cd forwarding_translation_proxy
+   ```
+
+3. Build the application:
+
+   ```bash
+   cargo build --release
+   ```
+
+4. The binary will be available at `target/release/forwarding_translation_proxy`
+
+### Native
+
+Download the pre-compiled binary for your platform from the [latest release](https://github.com/GrandmasterB42/forwarding_translation_proxy/releases/latest)
+
+Extract the binary to your desired location
+
+### Docker
+
+Pull and run the Docker image from GitHub Container Registry:
+
+```bash
+docker run -p <host-port>:<container-port> \
+  -v $/path/on/your/host/Config.toml:/app/Config.toml \
+  -e FORWARDING_SECRET=<your-secret> \
+  ghcr.io/grandmasterb42/forwarding_translation_proxy:latest
+```
 
 ## Resources I used
 

@@ -1,0 +1,17 @@
+# Git
+.git
+.gitignore
+
+# CI/CD
+.github
+
+# Documentation
+*.md
+LICENSE*
+
+# Build artifacts
+target/
+
+# Docker
+Dockerfile
+.dockerignore
