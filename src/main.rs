@@ -2,6 +2,9 @@ use std::path::Path;
 
 use tokio::net::{TcpListener, TcpStream};
 
+#[cfg(unix)]
+use tokio::signal::unix::SignalKind;
+
 use tokio_util::sync::CancellationToken;
 use tracing::{Instrument, Level, error, info, level_filters::LevelFilter, span, trace, warn};
 use tracing_subscriber::{Registry, fmt, layer::SubscriberExt, reload, util::SubscriberInitExt};
