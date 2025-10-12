@@ -1,10 +1,17 @@
 use std::path::Path;
 
+use time::macros::format_description;
 use tokio::net::{TcpListener, TcpStream};
 
 use tokio_util::sync::CancellationToken;
 use tracing::{Instrument, Level, error, info, level_filters::LevelFilter, span, trace, warn};
-use tracing_subscriber::{Registry, fmt, layer::SubscriberExt, reload, util::SubscriberInitExt};
+use tracing_subscriber::{
+    Registry,
+    fmt::{self, time::LocalTime},
+    layer::SubscriberExt,
+    reload,
+    util::SubscriberInitExt,
+};
 
 use crate::{
     config::{ConfigError, TomlConfig},
@@ -40,7 +47,7 @@ async fn main() {
     };
 
     trace!("Now updating the log filter according to the config");
-    if let Err(e) = log.update_filter(|f| *f = config.log_level.into()) {
+    if let Err(e) = log.update_filter(config.log_level.into()) {
         error!("Failed to update log filter {e}");
         return;
     };
@@ -84,7 +91,7 @@ async fn main() {
             }
         };
 
-        let connection_span = span!(Level::TRACE, "client_connection", client = %client_adress);
+        let connection_span = span!(Level::TRACE, "connection", %client_adress);
 
         let connection = match Connection::initiate(client_connection) {
             Ok(c) => c,
@@ -166,27 +173,41 @@ async fn shutdown_signal(cancel: CancellationToken) {
 }
 
 struct Logging {
-    reload_handle: reload::Handle<LevelFilter, Registry>,
+    level_reload_handle: reload::Handle<LevelFilter, Registry>,
 }
 
+// TODO: Make the formatter react to the config file
 impl Logging {
     fn init() -> Self {
-        let default_filter = if cfg!(debug_assertions) {
-            LevelFilter::TRACE
+        let (default_filter, fmt_filter) = if cfg!(debug_assertions) {
+            let compact_timer = LocalTime::new(format_description!(
+                "[year]-[month padding:zero]-[day padding:zero] [hour]:[minute]:[second].[subsecond digits:4]"
+            ));
+            (LevelFilter::TRACE, fmt::layer().with_timer(compact_timer))
         } else {
-            LevelFilter::INFO
+            let verbose_timer = LocalTime::new(format_description!(
+                "[year]-[month padding:zero]-[day padding:zero] [hour]:[minute]:[second]"
+            ));
+            (
+                LevelFilter::INFO,
+                fmt::layer().with_target(false).with_timer(verbose_timer),
+            )
         };
 
-        let (filter, reload_handle) = reload::Layer::new(default_filter);
+        let (level_filter, level_reload_handle) = reload::Layer::new(default_filter);
         tracing_subscriber::registry()
-            .with(filter)
-            .with(fmt::Layer::default())
+            .with(level_filter)
+            .with(fmt_filter)
             .init();
 
-        Self { reload_handle }
+        Self {
+            level_reload_handle,
+        }
     }
 
-    fn update_filter(&self, f: impl FnOnce(&mut LevelFilter)) -> Result<(), reload::Error> {
-        self.reload_handle.modify(|current| f(current))
+    fn update_filter(&self, filter: LevelFilter) -> Result<(), reload::Error> {
+        self.level_reload_handle
+            .modify(|current| *current = filter)?;
+        Ok(())
     }
 }
