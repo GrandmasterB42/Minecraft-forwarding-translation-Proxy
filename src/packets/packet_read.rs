@@ -25,6 +25,7 @@ where
     async fn read_packet<P: ReadPacket + Packet<Id>>(&mut self) -> Result<P, ReadPacketError>;
 }
 
+#[allow(dead_code)]
 pub trait ReadVersionedPacketExt<Id>
 where
     Self: AsyncReadExt + Unpin + Sized,
@@ -41,6 +42,7 @@ pub enum ReadPacketError {
     Io(tokio::io::Error),
     // This just means you didn't get what you expected
     InvalidPacketId {
+        #[allow(dead_code)]
         expected: u8,
         got: u8,
         packet: GenericPacket,
@@ -58,6 +60,7 @@ impl From<tokio::io::Error> for ReadPacketError {
     }
 }
 
+#[allow(dead_code)]
 pub enum ReadVersionedPacketError {
     Read(ReadPacketError),
     UnknownVersionedPacketId { protocol: i32 },

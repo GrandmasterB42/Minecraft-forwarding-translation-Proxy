@@ -16,6 +16,7 @@ pub struct GenericPacket {
     pub data: Arc<[u8]>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub enum InterpretError {
     InvalidPacketId,
@@ -30,6 +31,7 @@ impl From<tokio::io::Error> for InterpretError {
     }
 }
 
+#[allow(dead_code)]
 impl GenericPacket {
     pub async fn try_interpret_as<P: Packet<Managed> + ReadPacket>(
         &self,
