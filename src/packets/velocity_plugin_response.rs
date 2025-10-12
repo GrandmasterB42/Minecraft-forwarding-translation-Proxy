@@ -114,7 +114,6 @@ impl ReadPacket for VelocityLoginPluginResponse {
                 signature,
             });
         }
-        tracing::trace!("Read packet");
 
         Ok(VelocityLoginPluginResponse {
             connection_id,
