@@ -14,12 +14,13 @@ use tracing::{info, level_filters::LevelFilter, trace};
 #[derive(TomlExample, Deserialize)]
 pub struct TomlConfig {
     /// The Address this proxy will try to listen to
-    #[toml_example(default = "127.0.0.1:45565")]
+    #[toml_example(default = "0.0.0.0:45565")]
     pub bind_address: SocketAddr,
     /// The Address this proxy will try to forward the traffic to
     #[toml_example(default = "127.0.0.1:35565")]
     pub backend_address: SocketAddr,
     /// The Velocity forwarding secret, alternatively you can set the FORWARDING_SECRET environment variable
+    #[toml_example(default = "")]
     pub forwarding_secret: Arc<str>,
     /// The trusted ips that are allowed to connect, keep this empty to allow all connections
     #[toml_example(default = [])]
