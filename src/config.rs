@@ -9,7 +9,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
 };
 use toml_example::TomlExample;
-use tracing::{info, level_filters::LevelFilter, trace};
+use tracing::{info, level_filters::LevelFilter, trace, warn};
 
 #[derive(TomlExample, Deserialize)]
 pub struct TomlConfig {
@@ -64,14 +64,34 @@ impl TomlConfig {
         trace!("Trying to parse config");
         let mut config = toml::from_str::<TomlConfig>(&contents).map_err(ConfigError::Parse)?;
 
-        config.forwarding_secret = if config.forwarding_secret.is_empty() {
-            trace!("Using FORWARDING_SECRET from environment");
-            std::env::var("FORWARDING_SECRET")
-                .map_err(|_| ConfigError::NoSecret)?
-                .into()
-        } else {
-            config.forwarding_secret
-        };
+        match (
+            !config.forwarding_secret.is_empty(),
+            std::env::var("FORWARDING_SECRET"),
+        ) {
+            (false, Err(_)) => return Err(ConfigError::NoSecret),
+            (true, Err(_)) => {
+                trace!("Using forwarding secret from config");
+                // This requires nothign to be done, as it is already stored there
+            }
+            (false, Ok(secret)) => {
+                if secret.is_empty() {
+                    return Err(ConfigError::NoSecret);
+                }
+                trace!("Using FORWARDING_SECRET from environment");
+                config.forwarding_secret = secret.into();
+            }
+            (true, Ok(secret)) => {
+                if !secret.is_empty() {
+                    warn!(
+                        "The forwarding secret is secified in both the config and the environment, using the one from the environment"
+                    );
+                    config.forwarding_secret = secret.into();
+                } else {
+                    trace!("Using forwarding secret from config");
+                    // This requires nothing to be done, as it is already stored there
+                }
+            }
+        }
 
         Ok(config)
     }
