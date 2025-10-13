@@ -71,7 +71,7 @@ impl TomlConfig {
             (false, Err(_)) => return Err(ConfigError::NoSecret),
             (true, Err(_)) => {
                 trace!("Using forwarding secret from config");
-                // This requires nothign to be done, as it is already stored there
+                // This requires nothing to be done, as it is already stored there
             }
             (false, Ok(secret)) => {
                 if secret.is_empty() {
