@@ -1,0 +1,51 @@
+{
+    "meta": {
+        "version": "PTDL_v2",
+        "update_url": null
+    },
+    "exported_at": "2025-10-12T00:00:00+00:00",
+    "name": "Forwarding Translation Proxy",
+    "author": "GrandmasterB42@definitlynotvalid.com",
+    "description": "A Minecraft Java Edition proxy for connecting old Minecraft servers (legacy bungeecord forwarding) to Velocity Modern Forwarding Networks.",
+    "features": [],
+    "docker_images": {
+        "ghcr.io/pterodactyl/yolks:debian": "ghcr.io/pterodactyl/yolks:debian"
+    },
+    "file_denylist": [],
+    "startup": "./forwarding_translation_proxy",
+    "config": {
+        "files": "{}",
+        "startup": "{\r\n    \"done\": \"Listening for client connections on\"\r\n}",
+        "logs": "{}",
+        "stop": "^C"
+    },
+    "scripts": {
+        "installation": {
+            "script": "#!\/bin\/bash\r\n# Update package list and install required packages\napt update && apt install -y curl jq\n\n# Create and navigate to server directory\nmkdir -p /mnt/server\ncd /mnt/server\necho \"Working in: $(pwd)\"\n\n# Get latest release information from GitHub API\necho \"Fetching latest release information...\"\nRELEASE_DATA=$(curl -s \"https://api.github.com/repositories/1070397962/releases/latest\")\n\nif [ $? -ne 0 ]; then\n    echo \"Failed to fetch release information from GitHub API\"\n    exit 1\nfi\n\n# Extract version and determine download URL based on architecture\nVERSION=$(echo \"$RELEASE_DATA\" | jq -r '.tag_name')\necho \"Latest version: $VERSION\"\n\nif [ \"${ARCH}\" == \"amd64\" ]; then\n    ASSET_NAME=\"forwarding_translation_proxy-x86_64-linux-musl.tar.gz\"\nelif [ \"${ARCH}\" == \"arm64\" ]; then\n    echo \"ARM64 architecture detected, but no ARM64 binary available. Please compile from source.\"\n    exit 1\nelse\n    echo \"Unsupported architecture: ${ARCH}\"\n    exit 1\nfi\n\n# Get download URL for the specific asset\nDOWNLOAD_URL=$(echo \"$RELEASE_DATA\" | jq -r \".assets[] | select(.name == \\\"$ASSET_NAME\\\") | .browser_download_url\")\n\nif [ \"$DOWNLOAD_URL\" == \"null\" ] || [ -z \"$DOWNLOAD_URL\" ]; then\n    echo \"Failed to find download URL for $ASSET_NAME\"\n    exit 1\nfi\n\necho \"Downloading $ASSET_NAME from $DOWNLOAD_URL...\"\ncurl -L -o forwarding_translation_proxy.tar.gz \"$DOWNLOAD_URL\"\n\nif [ ! -f forwarding_translation_proxy.tar.gz ]; then\n    echo \"Failed to download forwarding_translation_proxy\"\n    exit 1\nfi\n\n# Extract the binary\ntar -xzf forwarding_translation_proxy.tar.gz\nrm forwarding_translation_proxy.tar.gz\n\n# Make binary executable\nchmod +x forwarding_translation_proxy\n\n# Run the proxy once to generate Config.toml\necho \"Generating default Config.toml...\"\ntimeout 5s ./forwarding_translation_proxy || true\n\n# Wait a moment for file to be written\nsleep 1\n\nif [ -f Config.toml ]; then\n    echo \"Config.toml generated successfully!\"\nelse\n    echo \"Config.toml will be generated on first run.\"\nfi\n\necho \"Installation completed successfully! Installed version: $VERSION\"",
+            "container": "debian:bullseye-slim",
+            "entrypoint": "bash"
+        }
+    },
+    "variables": [
+        {
+            "name": "Forwarding Secret",
+            "description": "The forwarding secret from your Velocity proxys forwarding.secret file.",
+            "env_variable": "FORWARDING_SECRET",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "string",
+            "field_type": "text"
+        },
+        {
+            "name": "Architecture",
+            "description": "System architecture for binary selection.",
+            "env_variable": "ARCH",
+            "default_value": "amd64",
+            "user_viewable": false,
+            "user_editable": false,
+            "rules": "required|string|in:amd64,arm64",
+            "field_type": "text"
+        }
+    ]
+}
